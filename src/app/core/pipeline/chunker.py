@@ -1,59 +1,72 @@
-"""
-Text splitting utilities - split the raw text into smaller pieces called chunks
+from langchain_core.documents import Document
 
-
-"""
-
-from typing import TYPE_CHECKING
-
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from text_splitter import split_text
 
 import logging
-
-if TYPE_CHECKING:
-    from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
 
-def split_text(
-        text: str,
+
+def chunk_text(
+        text:str,
+        *,
+        filename: str,
         chunk_size: int = 1024,
-        chunk_overlap: int = 200,
-        model_name: str = "gpt-4"
-) -> list[str]:
+        chunk_overlap: float = 0.2,
+        page_number: int | None = None
+) -> list[Document]:
     """
-    Split the text into overlapping chunks using tiktoken encoding.
+    Split the text into chunks and wrap each as LangChain ``Document``.
 
     Args:
-        text: The raw text to split.
-        chunk_size: Maximum token count per chunk.
-        chunk_overlap: Number of token to overlap between consecutive chunks.
-        model_name: Tiktoken encoder to split use (default, "gpt-4").
+        - text: Raw text content.
+        - filename: Original file name (stored in metadata).
+        - chunk_size: Target token count per chunk.
+        - chunk_overlap: Fractional Overlap (0.0 - 1.0).
+        - page_number: Optional 1-based PDF page number - stamped into metadata as ``page`` for page-aware retrieval filters
 
-    Returns:
-        List of chunk strings.
-
+    Return:
+        - List of Document object with ``page_content`` and ``metadata``.
+    
     """
 
-    # Is true only when the text is empty or contain nothing but whitespace
-    if not text.split():
-       
+    if not text.strip():
+        logging.warning(f"chunk_text called with empty text for {filename}")
         return []
 
-    # text splitter uses tiktoken encoder to count length and limit chunks precisely
-    splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size = chunk_size,
-        chunk_overlap = chunk_overlap,
-        model_name=model_name
+    overlap = int(chunk_size * chunk_overlap)
+
+    chunks = split_text(text, chunk_size = chunk_size, chunk_overlap = overlap)
+
+    # Obtain total number of chunks
+    total = len(chunks)
+
+    documents: list[Document] = []
+
+    for i,content in enumerate(chunks):
+        metadata: dict = {
+            "file_name": filename,
+            "total_chunk": total,
+            "chunk_num": i,
+            "chunk_size": chunk_size,
+        }
+
+        if page_number is not None:
+            metadata["page"] = page_number
+
+        doc = Document(metadata=metadata, page_content=content)
+
+        documents.append(doc)
+
+    logger.info(
+        f"The text chunked into {total} and for eac chunk the size is: {chunk_size} with overlap {overlap}"
     )
 
-    # Create LangChain Document objects (for use in downstream tasks)
-    docs: list[Document] = splitter.create_documents([text])
-    
-    return [doc.page_content for doc in docs]
+    return documents
 
-test = split_text("It was a key. An ordinary key. I found it when I was getting your books ready for Goodwill. It was taped to the inside of the back cover of one of your music notebooks and looked like one of those thin, metal keys found on luggage. We never locked our luggage when we traveled. I wanted to, but you insisted it would never deter anyone. You used to laugh and say it would do just the opposite. That if you were a luggage handler at the airport, you would “accidentally” break all the locks you came across, just to see what was so precious inside. You also worried we would lose the keys. I wanted to remind you that I never lost anything, but I didn’t argue with you. I never liked arguing with you." \
+
+test = chunk_text("It was a key. An ordinary key. I found it when I was getting your books ready for Goodwill. It was taped to the inside of the back cover of one of your music notebooks and looked like one of those thin, metal keys found on luggage. We never locked our luggage when we traveled. I wanted to, but you insisted it would never deter anyone. You used to laugh and say it would do just the opposite. That if you were a luggage handler at the airport, you would “accidentally” break all the locks you came across, just to see what was so precious inside. You also worried we would lose the keys. I wanted to remind you that I never lost anything, but I didn’t argue with you. I never liked arguing with you." \
 "" \
 "" \
 "What could this key possibly unlock? We had joint accounts, joint trusts, joint everything. I had been managing our lives entirely. The practical, boring stuff. Oh, I didn’t mind. You brought so much beauty to my life, to so many other people’s lives. I thought it was funny to be your stay-at-home husband. And I was proud. So proud. How many times I sat in the front row watching you conduct your own music, swiveling my head all around to make sure everyone saw me and that everyone knew you were mine. Your hands would dance in the air, and your wild mane would quiver every time you jumped to the music. Such passion." \
@@ -94,6 +107,9 @@ test = split_text("It was a key. An ordinary key. I found it when I was getting 
 "" \
 "Just the day before, our host had written of the challenges of writing short. In journalism–my friend’s chosen trade, and mostly my own, too–Mark Twain’s observation undoubtedly applies: “I didn’t have time to write a short letter, so I wrote a long one instead.” The principle holds across genres, in letters, reporting, and other writing. It’s harder to be concise than to blather. (Full disclosure, this blog post will clock in at a blather-esque 803 words.) Good writing is boiled down, not baked full of air like a souffl??. No matter how yummy souffl??s may be. Which they are. Yummy like a Grisham novel." \
 "" \
-"Lately, I’ve been noticing how my sentences have a tendency to keep going when I write them onscreen. This goes for concentrated writing as well as correspondence. (Twain probably believed that correspondence, in an ideal world, also demands concentration. But he never used email.) Last week I caught myself packing four conjunctions into a three-line sentence in an email. That’s inexcusable. Since then, I have tried to eschew conjunctions whenever possible. Gone are the commas, the and’s, but’s, and so’s; in are staccato declaratives. Better to read like bad Hemingway than bad Faulkner.")
+"Lately, I’ve been noticing how my sentences have a tendency to keep going when I write them onscreen. This goes for concentrated writing as well as correspondence. (Twain probably believed that correspondence, in an ideal world, also demands concentration. But he never used email.) Last week I caught myself packing four conjunctions into a three-line sentence in an email. That’s inexcusable. Since then, I have tried to eschew conjunctions whenever possible. Gone are the commas, the and’s, but’s, and so’s; in are staccato declaratives. Better to read like bad Hemingway than bad Faulkner.", filename="abc.doc")
+
+
+print(test)
 
 
