@@ -96,6 +96,32 @@ def load_pdf_pages(filename: str, content: bytes) -> list[tuple[int, str]]:
 
     Returns ``[(page_number_1_based, page_text), ...]``. Empty pages are skipped;
     pure-images or empty PDFs still anchor ``page=1`` so downstream has the field.
-
-
     """
+
+    if Path(filename).suffix.lower() != ".pdf":
+        raise FileTypeNotSupportedException(
+            f"load_pdf_pages expects .pdf, got {filename}"
+        )
+
+    try:
+        # form-feed heuristic: pdfminer uses \x0c between pages in flat extraction.
+        # # When pdfminer extracts text, it automatically inserts this invisible \x0c character every time it finishes reading one page and moves to the next.
+        full = pdf_extract_text(BytesIO(content))
+
+        # Your parts variable becomes a list of strings grouped perfectly by page.
+        parts = full.split("\x0c") 
+        pages: list[tuple[int, str]] = []
+
+        for idx, text in enumerate(parts, start=1):
+            if text.strip():
+                pages.append((idx, text))
+
+        if not pages:
+            pages = [(1, full or "")]
+
+        return pages
+
+
+    except Exception as exc:
+        logger.error(f"PDF per-page extraction failed for {filename}: {exc}")
+        raise PDFProcessingException(str(exc)) from exc
