@@ -1,0 +1,81 @@
+"""
+Embedding step - convert text chunks into vector embeddings.
+
+sentence-transformers adapter
+"""
+
+import asyncio
+
+from sentence_transformers import SentenceTransformer
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_MODEL = "sentence-transformer/all-MiniLM-L6-v2"
+
+
+# We use class becuase it hold state. The model name and the loaded weights live on instance, so I loaded once and reuse across many .encode() calls
+class Embedder:
+    """LangChain-compatible embeddings backed by sentence_transformers"""
+
+    def __init__(self, model_name: str | None = None):
+        self.model_name = model_name or _DEFAULT_MODEL
+        self._model: SentenceTransformer | None = None # Lazy Loading, construction is cheap, and the actual weights only load the first time you embed something.
+
+
+    # It is called on the class itself, not an instance
+    # Embedder.default_model_name() - no object, no weights
+    @classmethod
+    def default_model_name(cls) -> str:
+        """Return the configured embedding model name without loading weights.
+        
+        Cheap, safe to call from debug/trace path - no SentenceTransformer
+        construction, no model download.
+
+        """
+        return _DEFAULT_MODEL
+
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+
+    def _load(self):
+        if self._model is None:
+            logger.info(f"Loading embedding model: {self.model_name}")
+            self._model = SentenceTransformer(self.model_name)
+
+
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Return one embedding vector per text."""
+        self._load()
+        assert self._model is not None
+        embeddings = self._model.encode(texts, convert_to_numpy=True).tolist()
+        return [list(e) for e in embeddings]
+
+
+    def embed_query(self, text: str) -> list[float]:
+        """Return a single embedding vector for query."""
+        self._load()
+        assert self._model is not None
+        embedding = self._model.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
+
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Async wrapper around embed_documents."""
+        return await asyncio.to_thread(self.embed_documents, texts)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        """Async wrapper around embed_query."""
+        return await asyncio.to_thread(self.embed_query, text)
+    
+
+

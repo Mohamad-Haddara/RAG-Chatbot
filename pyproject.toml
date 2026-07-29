@@ -13,4 +13,5 @@ dependencies = [
     "langchain-text-splitters>=1.1.2",
     "pdfminer>=20191125",
     "pdfminer-six>=20260107",
+    "sentence-transformers>=5.6.1",
 ]
