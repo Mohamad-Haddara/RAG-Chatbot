@@ -1,6 +1,6 @@
 """Cheap language detection for the NER routing layer.
 
-Thin wrapper around ``langdetect``; returns ``"en"``, ``"id"``, or ``"unknown"``.
+Thin wrapper around ``langdetect``; returns ``"en"``, ``"ar"``, or ``"unknown"``.
 
 Only used in the FastAPI path — batch path gets language from the caller.
 """
@@ -39,8 +39,29 @@ def detect_language(text:str) -> str:
 
     return "unkown"
 
+
+def detect_chunk_languages(chunks: list) -> None:
+    """
+    Always on language detection - sets ``language`` metadata on every chunk.
+
+    Called unconditionally during ingestion, before the NER gate, so
+    ''{"language": "en}'' filters work even when ''NER_ENABLED=false``.
+
+    Args:
+        - chunks: list of LangChain ``Document`` objects (mutated in place)
+    """
+
+    for chunk in chunks:
+        text = chunk.page_content
+        if not text.strip():
+            continue
+
+        lang = langdetect.detect(chunk)
+        if lang != "unknown":
+            chunk.metadata.setdefault("language", lang)
+
     
 
 
 if __name__ == "__main__":
-    print(detect_language("hellow"))
+    print(detect_language("كيف"))
