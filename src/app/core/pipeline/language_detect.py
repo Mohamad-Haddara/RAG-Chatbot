@@ -61,7 +61,3 @@ def detect_chunk_languages(chunks: list) -> None:
             chunk.metadata.setdefault("language", lang)
 
     
-
-
-if __name__ == "__main__":
-    print(detect_language("كيف"))

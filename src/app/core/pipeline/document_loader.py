@@ -86,7 +86,7 @@ def load_document_bytes(filename: str, content: bytes) -> str:
 
     # Input content - This is raw binary data
     # The Action - .decode() -- This tells Python to translate that raw binary data into a readable string of text
-    # 
+    
     return content.decode("utf-8")
 
 
@@ -125,3 +125,81 @@ def load_pdf_pages(filename: str, content: bytes) -> list[tuple[int, str]]:
     except Exception as exc:
         logger.error(f"PDF per-page extraction failed for {filename}: {exc}")
         raise PDFProcessingException(str(exc)) from exc
+
+
+def load_jsonl_bytes(
+        filename: str,
+        content: bytes,
+
+) -> list[tuple[str, dict[str, Any]]]:
+    """
+    Parse a .jsonl byte stream into (text, metadata) records.
+
+    Each line must be a JSON object with a "text" field. Every other key is treated per-record metadata and merged
+    into chunk metadata downstream.
+
+    Args:
+        - filename: Original file name (for error message)
+        - content: Raw bytes of the JSONL file.
+
+    Return:
+        - List of (text, metadata) tuples - one per valid JSON line.
+
+    Raises:
+        - FileTypeNotSupportedException: If *filename* suffix is not ``.jsonl``.
+        - ValueError: If a line is not valid JSON or misses a "text" field
+
+    Note:
+        - JOSN: one object, load it whole
+        - JSONL: many object, one per line - Streaming version — the reason JSONL exists. Never holds more than one record in memory
+        - str: is text
+        - bytes: is raw data on disk or wire
+        - encode: str -> bytes (going out: to file, API, socket)
+        - decode: bytes -> str (coming in: from a file)
+
+    """
+
+    suffix = Path(filename).suffix.lower()
+    if suffix != ".jsonl":
+        raise FileTypeNotSupportedException(f"Expected .jsonl, got {suffix}")
+
+    records: list[tuple[str, dict[str, Any]]] = []
+    decoded = content.decode("utf-8")
+
+    for line_no, line in enumerate(decoded.splitlines(), start=1):
+        stripped = line.strip()
+
+        if not stripped:
+            continue
+
+        try:
+            # read JSON from file object and return python object
+            # loads -> input is bytes, output is Python Object
+            record = json.loads(stripped)
+
+        except json.JSONDecodeError as exc:
+            logger.warning(f"{filename} line {line_no}: invalid JSON - {exc}")
+            continue
+
+
+        if not isinstance(record, dict):
+            logger.warning(
+                f"{filename} line {line_no}: expected dict, got {type(record)} - skipping"
+                )
+
+            continue
+
+        text = record.get("text", "") or record.get("page_content", "")
+
+        if not text:
+            logger.warning(f"{filename} line {line_no}: no 'text' field ")
+
+            continue
+
+
+        meta = {k: v for k, v in record.items() if k not in ("text", "page_content")}
+        records.append((text, meta))
+
+    logger.info(f"Parsed {len(records)} from {filename}")
+
+    return records
