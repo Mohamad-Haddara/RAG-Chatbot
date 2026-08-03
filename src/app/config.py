@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Annotated
 from pydantic import Field, HttpUrl, PostgresDsn, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import torch
 
 CONFIG_FILE = Path(__file__).resolve()
 APP_DIR = CONFIG_FILE.parent
@@ -70,8 +71,15 @@ class AppSettings(BaseSettings):
         alias="RERANKER_MODEL"
     )
 
+    def get_default_device() -> str:
+        if torch.cuda.is_available():
+            return "cuda"
+        elif torch.backends.mps.is_available():
+            return "mps"
+        else:
+            return "cpu"
     reranker_enabled: bool = Field(default=True, alias="RERANKER_ENABLED")
-    reranker_device: str = Field(default="cuda", alias="RERANKER_DEVICE")
+    reranker_device: str = Field(default_factory=get_default_device, alias="RERANKER_DEVICE")
 
     # --- NER enrichment ---
     ner_enabled: bool = Field(default=True, alias="NER_ENABLED")
@@ -133,4 +141,4 @@ settings = AppSettings()
 if __name__ == "__main__":
     import json
 
-    print(json.dumps(setting.model_dump(), indent=2, default=str))
+    print(json.dumps(settings.model_dump(), indent=2, default=str))

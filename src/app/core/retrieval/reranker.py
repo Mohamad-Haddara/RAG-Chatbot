@@ -2,6 +2,22 @@
 Cross-Encoder reranker - re-order retrieved chunks by relevance to the query
 
 Using FlagReranker
+
+ 
+WHY THIS FILE EXISTS
+--------------------
+Vector search (a bi-encoder such as BGE-M3) embeds the query and each chunk
+SEPARATELY, then compares vectors. That's fast enough to scan a whole
+collection, but approximate — loosely related chunks can rank too high.
+ 
+A cross-encoder (FlagReranker, e.g. bge-reranker-v2-m3) reads the query and a
+chunk TOGETHER in one forward pass and outputs one relevance score. Far more
+accurate — but far too slow to run over the entire collection.
+ 
+Standard RAG pattern, implemented here:
+    1. Vector search cheaply retrieves ~20-50 candidate chunks.
+    2. The cross-encoder re-scores ONLY those candidates.
+    3. Just the top_k best-scoring chunks go into the LLM prompt.
 """
 
 # gc = garbage collector; used in close() to reclaim RAM immediately
@@ -14,7 +30,9 @@ import time
 import torch
 
 # FlagReranker() = BAAI's cross-encoder wrapper - the actual scoring model
-from FlagEmbedding import FlagReranker
+#from FlagEmbedding import FlagReranker
+from sentence_transformers import CrossEncoder
+
 
 # settings: model name, device, and on/off flag live in config
 # so behaviour changes per environment without touching this code
@@ -85,10 +103,10 @@ class CrossEncoderReRanker:
             # use fp16 = True on GPU = half-precision weights -> half the VRAM.
             # and faster inference, with negligible accuracy loss
             # On CPU fp16 is slow/poorly supported, so it stays False there
-            self._model = FlagReranker(
+            self._model = CrossEncoder(
                 self.model_name,
-                use_fp16=is_gpu,  
-                devices=self.device 
+                max_length=512,
+                device=self.device 
             )
 
             logger.debug(f"Reranker init with {self.device}")
@@ -98,7 +116,7 @@ class CrossEncoderReRanker:
                 # The FIRST GPU inference is always slow (CUDA kernels get compiled, memory pools get allocated).
                 # Run one tiny dummy scoring
                 logger.debug("Reranker warming up...")
-                self._model.compute_score(
+                self._model.predict(
                     # One fake (query, document) pair - content is irrelevant
                     [("warmup query", "warmup document")],
                     normalize=True, # sigmoid -> score in [0,1]
@@ -141,14 +159,16 @@ class CrossEncoderReRanker:
         if not self.enabled or not documents:
             return [(doc, 1.0) for doc in documents[:top_k]]
 
+        # Lazy load: first real call pays the loading cost
         self._load()
 
+        # None → we cannot rerank → fail loudly with a domain exception
         if self._model is None:
             raise RerankerException
 
         pairs = [(query, doc.page_content) for doc in documents]
 
-        scores = self._model.compute_score(
+        scores = self._model.predict(
             pairs,
             normalize = True,
             batch_size = 32,
@@ -168,6 +188,75 @@ class CrossEncoderReRanker:
             result.append((doc, float(score)))
 
         return result
+
+    def healthcheck(self) -> dict:
+        """Return a health-check result dict (for a /health endpoint or monitoring)"""
+        result: dict = {
+            "status": "unhealthy",
+            "model": self.model_name,
+            "device": self.device,
+            "enabled": self.enabled,
+            "loaded": self._loaded
+        }
+
+        if not self.enabled:
+            result["status"] = "disabled"
+            return result
+
+
+        # Enabled but no model in memory (lazy load not triggered yet, or loading failed earlier) 
+        if not self._loaded or self._model is None:
+            result['error'] = "Model not loaded"
+            return result
+
+        try:
+
+            # Time one tiny REAL inference — proves the model actually works, not just that the object exists
+            start = time.perf_counter()
+            score = self._model.predict(
+                [("healthcheck","probe")],
+                normalize = True,
+                batch_size = 1,
+                max_length = 16
+            )
+
+            latency_ms = round((time.perf_counter() - start)*100,2)
+
+            # compute_score may return a float OR a list depending on input
+            if isinstance(score, list):
+                if len(score) > 0:
+                    score = score[0] # Extract the first (and only) score
+
+                else:
+                    result["error"] = "Empty score list returned"
+                    return result
+
+            # Sanity check: a normalised score must be a number in [0, 1].
+            # Anything else means the model returned garbage.
+            if not isinstance(score, (int, float)) or not (0.0 <= score <= 1.0):
+                result["error"] = f"Invalid score returned: {score}"
+                return result
+
+             # All checks passed
+            result["status"] = "healthy"
+            result["latency_ms"] = latency_ms
+            result["warm"] = True   # loaded AND has done real inference
+
+        except Exception as exc:
+            logger.error(f"Reranker healthcheck failed: {exc}", exc_info = True)
+            result["error"] = str(exc)
+
+        return result
+
+
+    def close(self) -> None:
+        self._model = None
+        gc.collect()
+
+        if torch.mps.is_available():
+            torch.mps.empty_cache()
+            
+
 
 
 
@@ -196,6 +285,6 @@ for rank, (doc, score) in enumerate(results, 1):
 
  
 print(f"raw return: {type(results).__name__} of (Document, float) tuples")
-#print(f"healthcheck: {r.healthcheck()}")
+print(f"healthcheck: {r.healthcheck()}")
  
  
