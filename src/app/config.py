@@ -128,7 +128,7 @@ class AppSettings(BaseSettings):
 
 # We can check the AppSettings class is working by printing a dump of the model
 
-setting = AppSettings()
+settings = AppSettings()
 
 if __name__ == "__main__":
     import json

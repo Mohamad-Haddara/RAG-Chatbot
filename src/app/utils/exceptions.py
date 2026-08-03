@@ -42,3 +42,10 @@ class PDFProcessingException(AppException):
     """Failed to extract text from a PDF"""
     status_code = 500
     default_message = "Failed to process the PDF file"
+
+
+class RerankerException(AppException):
+    """The cross-encoder reranker failed"""
+
+    status_code = 500
+    default_message = "The reranker model failed"

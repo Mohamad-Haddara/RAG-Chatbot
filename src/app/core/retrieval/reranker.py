@@ -9,6 +9,7 @@ import time
 import torch
 from FlagEmbedding import FlagReranker
 from app.config import settings
+from utils.exceptions import RerankerException
 from langchain_core.documents import Document # This class is used to store a piece of text and its metadata for retrieval and data processing
 # key attributes - page_content, metadata
 
@@ -78,5 +79,37 @@ class CrossEncoderReRanker:
             self,
             query: str,
             documents: list[Document],
-            
-    )
+            top_k: int = 5,
+    ) -> list[tuple[Document, float]]:
+        """
+        Return the top k ``(document, store)`` pairs ordered by cross-encoder score.
+
+        A score of 1.0 is emitted for bypass paths (reranker disabled, no documents, or model not loaded) so downstream
+        threshold filters have a well-defined value. Active reranking uses FlagReranker's normalised score (range ~ [0, 1]).
+        """
+
+        if not self.enabled or not documents:
+            return [(doc, 1.0) for doc in documents[:top_k]]
+
+        self._load()
+
+        if self._model is None:
+            raise RerankerException
+
+        pairs = [(query, doc.page_content) for doc in documents]
+
+        scores = self._model.compute_score(
+            pairs,
+            normalize = True,
+            batch_size = 32,
+            max_length = 512
+        )
+
+        scored = list(zip(documents,scores))
+
+        # sort descending order (highest to lowest)
+        # used when you have a list of tuples
+        # sorting the scores 
+        scored.sort(key=lambda x:x[1], reverse=True)
+
+
