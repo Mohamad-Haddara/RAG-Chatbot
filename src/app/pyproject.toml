@@ -15,5 +15,6 @@ dependencies = [
     "langdetect>=1.0.9",
     "pdfminer>=20191125",
     "pdfminer-six>=20260107",
+    "pydantic-settings>=2.14.2",
     "sentence-transformers>=5.6.1",
 ]

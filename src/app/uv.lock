@@ -149,6 +149,7 @@ dependencies = [
     { name = "langdetect" },
     { name = "pdfminer" },
     { name = "pdfminer-six" },
+    { name = "pydantic-settings" },
     { name = "sentence-transformers" },
 ]
 
@@ -164,6 +165,7 @@ requires-dist = [
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "pdfminer", specifier = ">=20191125" },
     { name = "pdfminer-six", specifier = ">=20260107" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "sentence-transformers", specifier = ">=5.6.1" },
 ]
 
